@@ -74,24 +74,39 @@ samtools flagstat "${MAPDIR}"/aln.sorted.bam > "${MAPDIR}"/aln.sorted.stats
 ###################################################################
 
 mkdir "${OUTDIR}"/"${ID}"_polish
+readonly POLISH_DIR="${OUTDIR}"/"${ID}"_polish
 
 # extraction of fasta sequence from fast5
-./nanopolish extract --type template "${FAST5}" > "${OUTDIR}"/"${ID}"_polish/pass.fasta
+./nanopolish extract --type template "${FAST5}" > "${POLISH_DIR}"/pass.fasta
 
 # mapping of reads against draft
 bwa mem -x ont2d -t 8 "${REFERENCE}" \
-    "${OUTDIR}"/"${ID}"_polish/pass.fasta > "${OUTDIR}"/"${ID}"_polish/aln.sam
+    "${POLISH_DIR}"/pass.fasta > "${POLISH_DIR}"/aln.sam
 
-samtools sort "${OUTDIR}"/"${ID}"_polish/aln.sam \
-	 -o "${OUTDIR}"/"${ID}"_polish/aln.sort.bam
+samtools sort "${POLISH_DIR}"/aln.sam \
+	 -o "${POLISH_DIR}"/aln.sort.bam
 
-samtools index "${OUTDIR}"/"${ID}"_polish/aln.sort.bam
+samtools index "${POLISH_DIR}"/aln.sort.bam
 
 # nanopolish
-python nanopolish_makerange.py "${REFERENCE}" | \
-    parallel --results "${OUTDIR}"/"${ID}"_polish/nanopolish.results -P 8 \
-	     nanopolish variants --consensus polished.{1}.fa -w {1} \
-	     -r "${OUTDIR}"/"${ID}"_polish/"${ID}".adalentrim.fasta \
+python nanopolish_makerange.py --segment-length 1000 "${REFERENCE}" | \
+    parallel --results "${POLISH_DIR}"/nanopolish.results -P 8 \
+	     nanopolish variants --consensus "${POLISH_DIR}"/polished.{1}.fa -w {1} \
+	     -r "${POLISH_DIR}"/"${ID}".adalentrim.fasta \
 	     -b "${MAPDIR}"/aln.sorted.bam \
 	     -g "${REFERENCE}" \
 	     -t 4 --min-candidate-frequency 0.1
+
+python nanopolish_merge.py "${POLISH_DIR}"/polished.*.fa > "${POLISH_DIR}"/am1_polished.fasta
+
+######################
+# MSA for verification
+######################
+cat "${REFERENCE}" "${POLISH_DIR}"/am1_polished.fasta > "${POLISH_DIR}"/polished_vs_non_polished.fasta
+cat "${POLISH_DIR}"/am1_polished.fasta "${POLISH_DIR}"/sanger.fasta > "${POLISH_DIR}"/polished_vs_sanger.fasta
+
+clustalo --infile= "${POLISH_DIR}"/polished_vs_non_polished.fasta \
+	 --outfmt=clu --outfile="${POLISH_DIR}"/msa_polished_vs_non_polished.clustal --verbose
+
+clustalo --infile= "${POLISH_DIR}"/polished_vs_sanger.fasta \
+	 --outfmt=clu --outfile="${POLISH_DIR}"/msa_polished_vs_sanger.clustal --verbose
